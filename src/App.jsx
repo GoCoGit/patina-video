@@ -33,8 +33,8 @@ function App() {
     // domain can be used directly.
     try {
       await ffmpeg.load({
-        coreURL: await toBlobURL(`/ffmpeg-core.js`, 'text/javascript'),
-        wasmURL: await toBlobURL(`/ffmpeg-core.wasm`, 'application/wasm'),
+        coreURL: await toBlobURL(`${import.meta.env.BASE_URL}ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${import.meta.env.BASE_URL}ffmpeg-core.wasm`, 'application/wasm'),
       });
       setLoaded(true);
     } catch (error) {
