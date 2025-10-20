@@ -17,6 +17,9 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
 
+      - name: Set npm registry to mirror
+        run: npm config set registry https://registry.npmmirror.com
+
       - name: Install dependencies
         uses: bahmutov/npm-install@v1
 
