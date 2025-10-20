@@ -9,7 +9,7 @@ function App() {
   const [inputVideo, setInputVideo] = useState(null);
   const [outputVideo, setOutputVideo] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [iterations, setIterations] = useState(30);
+  const [iterations, setIterations] = useState(5);
   const [currentIteration, setCurrentIteration] = useState(0);
   const ffmpegRef = useRef(new FFmpeg());
   const messageRef = useRef(null);
@@ -73,45 +73,30 @@ function App() {
       messageRef.current.innerHTML = '正在上传视频到FFmpeg...';
       await ffmpeg.writeFile('input.mp4', await fetchFile(inputVideo));
 
-      // 先进行缩放处理以提高性能
-      messageRef.current.innerHTML = '正在预处理视频（缩放）...';
-      await ffmpeg.exec([
-        '-i', 'input.mp4',
-        '-vf', 'scale=trunc(iw*0.5/2)*2:trunc(ih*0.5/2)*2',
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-crf', '30',
-        'lowres.mp4'
-      ]);
+      // 保持原始分辨率，不做预缩放
+      messageRef.current.innerHTML = '准备处理中（保持原始宽高）...';
+      let currentFile = 'input.mp4';
 
-      let currentFile = 'lowres.mp4';
-
-      // Iterative processing loop
+      // Iterative processing loop（每次迭代在内部先降采样再放大，最终保持原始宽高）
       for (let i = 1; i <= iterations; i++) {
         setCurrentIteration(i);
         const outputFile = `iter${String(i).padStart(3, '0')}.mp4`;
 
-        // Calculate degrading parameters based on iteration
-        const crf = Math.min(20 + Math.floor(i / 3), 40); // Quality degradation
-        let bitrate = Math.max(1200 - i * 8, 200); // Bitrate reduction
-
-        // Scale reduction every 10 iterations
-        let scaleFilter = 'scale=iw:ih';
-        if (i % 10 === 0) {
-          scaleFilter = 'scale=trunc(iw*0.9/2)*2:trunc(ih*0.9/2)*2';
-        }
-
-        // Random noise strength
-        const noiseStrength = (i % 7) + 3;
+        // 更强的退化参数，但输出尺寸保持不变
+        const crf = Math.min(28 + i * 2, 40);
+        const downFactor = Math.pow(0.88, i); // 逐步更强的内部降采样
+        // 先缩小到 downFactor，再放大回原尺寸（第二个 scale 的 iw/ih 是前一个 scale 的输出尺寸）
+        const internalScale = `scale=trunc(iw*${downFactor}/2)*2:trunc(ih*${downFactor}/2)*2,scale=trunc(iw/${downFactor}/2)*2:trunc(ih/${downFactor}/2)*2`;
+        const noiseStrength = 5 + i * 2;
 
         messageRef.current.innerHTML = `正在处理第 ${i}/${iterations} 次迭代...`;
 
-        // Apply video filters: scale, format, contrast/brightness/saturation adjustments, noise
+        // 过滤链：内部降采样->放大(保持原始宽高)->色调->轻微模糊->噪点->降帧->像素格式
         await ffmpeg.exec([
           '-i', currentFile,
-          '-vf', `${scaleFilter},format=yuv420p,eq=contrast=0.95:brightness=-0.01:saturation=0.95,noise=alls=${noiseStrength}:allf=t`,
+          '-vf', `${internalScale},eq=contrast=0.92:brightness=-0.015:saturation=0.9,boxblur=1:1,noise=alls=${noiseStrength}:allf=t,fps=18,format=yuv420p`,
           '-c:v', 'libx264',
-          '-preset', 'veryfast',
+          '-preset', 'ultrafast',
           '-profile:v', 'baseline',
           '-level', '3.0',
           '-crf', crf.toString(),
@@ -126,8 +111,8 @@ function App() {
 
         currentFile = outputFile;
 
-        // Clean up previous iteration file (except input and lowres)
-        if (i > 1 && currentFile !== 'input.mp4' && currentFile !== 'lowres.mp4') {
+        // Clean up previous iteration file (except input)
+        if (i > 1 && currentFile !== 'input.mp4') {
           try {
             await ffmpeg.deleteFile(`iter${String(i - 1).padStart(3, '0')}.mp4`);
           } catch (e) {
